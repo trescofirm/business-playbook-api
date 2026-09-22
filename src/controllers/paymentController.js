@@ -9,13 +9,9 @@ const {
   sendPurchaseEmail,
 } = require("../services/emailService");
 
-/*
-|--------------------------------------------------------------------------
-| PRODUCTS
-|--------------------------------------------------------------------------
-| USD ONLY
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   PRODUCTS
+========================================================= */
 
 const PRODUCTS = {
   "how-to-attract-women": {
@@ -39,21 +35,13 @@ const PRODUCTS = {
 
 const COLLECTION_PRICE = 45.0;
 
-/*
-|--------------------------------------------------------------------------
-| DOWNLOAD TOKEN SETTINGS
-|--------------------------------------------------------------------------
-*/
-
 const DOWNLOAD_TOKEN_EXPIRY_DAYS = Number(
   process.env.DOWNLOAD_TOKEN_EXPIRY_DAYS || 30
 );
 
-/*
-|--------------------------------------------------------------------------
-| HELPERS
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   HELPERS
+========================================================= */
 
 function roundMoney(value) {
   return (
@@ -62,12 +50,6 @@ function roundMoney(value) {
     ) / 100
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| ORDER NUMBER
-|--------------------------------------------------------------------------
-*/
 
 function generateOrderNumber() {
   const timestamp = Date.now();
@@ -80,17 +62,8 @@ function generateOrderNumber() {
   return `BP-${timestamp}-${random}`;
 }
 
-/*
-|--------------------------------------------------------------------------
-| NORMALIZE PRODUCTS
-|--------------------------------------------------------------------------
-*/
-
 function normalizeItems(items) {
-  if (
-    !Array.isArray(items) ||
-    items.length === 0
-  ) {
+  if (!Array.isArray(items) || items.length === 0) {
     throw new Error("No products selected");
   }
 
@@ -125,19 +98,11 @@ function normalizeItems(items) {
   });
 }
 
-/*
-|--------------------------------------------------------------------------
-| CALCULATE PRICING
-|--------------------------------------------------------------------------
-|
-| USD ONLY
-|
-| PIR = 10% discount
-|
-| FREE100 REMOVED
-| INR REMOVED
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   PRICING
+   USD ONLY
+   PIR = 10% DISCOUNT
+========================================================= */
 
 function calculatePricing(
   products,
@@ -167,19 +132,15 @@ function calculatePricing(
         )
       : 0;
 
-  const normalizedCoupon =
-    String(couponCode || "")
-      .trim()
-      .toUpperCase();
+  const normalizedCoupon = String(
+    couponCode || ""
+  )
+    .trim()
+    .toUpperCase();
 
   let discount = 0;
 
-  /*
-  |--------------------------------------------------------------------------
-  | PIR COUPON
-  |--------------------------------------------------------------------------
-  */
-
+  /* Only PIR is supported */
   if (normalizedCoupon === "PIR") {
     discount = roundMoney(
       subtotal * 0.1
@@ -209,11 +170,9 @@ function calculatePricing(
   };
 }
 
-/*
-|--------------------------------------------------------------------------
-| DOWNLOAD TOKEN
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   DOWNLOAD TOKEN
+========================================================= */
 
 function generateDownloadToken() {
   return crypto
@@ -239,11 +198,9 @@ function getDownloadExpiryDate() {
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| CREATE DOWNLOAD LINKS
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   CREATE DOWNLOAD LINKS
+========================================================= */
 
 async function createDownloadLinks(
   connection,
@@ -259,11 +216,9 @@ async function createDownloadLinks(
 
   for (const item of items) {
     /*
-    |--------------------------------------------------------------------------
-    | CHECK EXISTING TOKEN
-    |--------------------------------------------------------------------------
+      Check whether a token already exists
+      for this order item.
     */
-
     const [existingTokens] =
       await connection.execute(
         `
@@ -283,28 +238,14 @@ async function createDownloadLinks(
       continue;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | GENERATE TOKEN
-    |--------------------------------------------------------------------------
-    */
-
     const rawToken =
       generateDownloadToken();
 
     const tokenHash =
-      hashDownloadToken(
-        rawToken
-      );
+      hashDownloadToken(rawToken);
 
     const expiresAt =
       getDownloadExpiryDate();
-
-    /*
-    |--------------------------------------------------------------------------
-    | SAVE TOKEN HASH
-    |--------------------------------------------------------------------------
-    */
 
     await connection.execute(
       `
@@ -324,12 +265,6 @@ async function createDownloadLinks(
         expiresAt,
       ]
     );
-
-    /*
-    |--------------------------------------------------------------------------
-    | RETURN DOWNLOAD URL
-    |--------------------------------------------------------------------------
-    */
 
     downloads.push({
       productId:
@@ -351,11 +286,9 @@ async function createDownloadLinks(
   return downloads;
 }
 
-/*
-|--------------------------------------------------------------------------
-| CREATE ORDER
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   CREATE RAZORPAY ORDER
+========================================================= */
 
 const createOrder = async (
   req,
@@ -370,11 +303,9 @@ const createOrder = async (
       customer,
     } = req.body;
 
-    /*
-    |--------------------------------------------------------------------------
-    | CUSTOMER REQUIRED
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       CUSTOMER VALIDATION
+    ----------------------------------------- */
 
     if (!customer) {
       return res.status(400).json({
@@ -385,17 +316,16 @@ const createOrder = async (
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | REQUIRED CUSTOMER FIELDS
-    |--------------------------------------------------------------------------
-    |
-    | address     ❌ removed
-    | city        ❌ removed
-    | pincode     ❌ removed
-    |
-    | country     ✅ kept
-    | state       ✅ kept
-    |--------------------------------------------------------------------------
+      IMPORTANT:
+
+      Only these customer fields are
+      required now:
+
+      firstName
+      lastName
+      email
+      country
+      state
     */
 
     const requiredFields = [
@@ -416,11 +346,9 @@ const createOrder = async (
       }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | EMAIL
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       EMAIL VALIDATION
+    ----------------------------------------- */
 
     const email = String(
       customer.email
@@ -439,20 +367,16 @@ const createOrder = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PRODUCTS
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       PRODUCTS
+    ----------------------------------------- */
 
     const products =
       normalizeItems(items);
 
-    /*
-    |--------------------------------------------------------------------------
-    | PRICING
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       PRICING
+    ----------------------------------------- */
 
     const pricing =
       calculatePricing(
@@ -460,19 +384,11 @@ const createOrder = async (
         couponCode
       );
 
-    /*
-    |--------------------------------------------------------------------------
-    | USD ONLY
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       USD ONLY
+    ----------------------------------------- */
 
     const currency = "USD";
-
-    /*
-    |--------------------------------------------------------------------------
-    | PAID ORDER ONLY
-    |--------------------------------------------------------------------------
-    */
 
     if (pricing.total <= 0) {
       throw new Error(
@@ -480,27 +396,22 @@ const createOrder = async (
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | ORDER NUMBER
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       ORDER NUMBER
+    ----------------------------------------- */
 
     const orderNumber =
       generateOrderNumber();
 
-    /*
-    |--------------------------------------------------------------------------
-    | CREATE RAZORPAY ORDER
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       RAZORPAY ORDER
+    ----------------------------------------- */
 
     const razorpayOrder =
       await razorpay.orders.create({
-        amount:
-          Math.round(
-            pricing.total * 100
-          ),
+        amount: Math.round(
+          pricing.total * 100
+        ),
 
         currency: "USD",
 
@@ -520,35 +431,35 @@ const createOrder = async (
         },
       });
 
-    /*
-    |--------------------------------------------------------------------------
-    | DATABASE CONNECTION
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       DATABASE CONNECTION
+    ----------------------------------------- */
 
     connection =
       await pool.getConnection();
 
     await connection.beginTransaction();
 
-    /*
-    |--------------------------------------------------------------------------
-    | SAVE CUSTOMER
-    |--------------------------------------------------------------------------
-    |
-    | ONLY:
-    | first_name
-    | last_name
-    | email
-    | country
-    | state
-    | notes
-    |
-    | address ❌
-    | city    ❌
-    | pincode ❌
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       SAVE CUSTOMER
+
+       CURRENT DB:
+
+       id
+       first_name
+       last_name
+       email
+       country
+       state
+       notes
+       created_at
+       updated_at
+
+       NO:
+       address
+       city
+       pincode
+    ----------------------------------------- */
 
     const [
       customerResult,
@@ -578,59 +489,46 @@ const createOrder = async (
     const customerId =
       customerResult.insertId;
 
-    /*
-    |--------------------------------------------------------------------------
-    | SAVE ORDER
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       SAVE ORDER
+    ----------------------------------------- */
 
-    const [
-      orderResult,
-    ] = await connection.execute(
-      `
-        INSERT INTO orders
-        (
-          order_number,
-          customer_id,
-          subtotal,
-          discount,
-          total,
-          coupon_code,
-          currency,
-          razorpay_order_id,
-          status
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        orderNumber,
-
-        customerId,
-
-        pricing.subtotal,
-
-        pricing.discount,
-
-        pricing.total,
-
-        pricing.couponCode,
-
-        "USD",
-
-        razorpayOrder.id,
-
-        "PENDING",
-      ]
-    );
+    const [orderResult] =
+      await connection.execute(
+        `
+          INSERT INTO orders
+          (
+            order_number,
+            customer_id,
+            subtotal,
+            discount,
+            total,
+            coupon_code,
+            currency,
+            razorpay_order_id,
+            status
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          orderNumber,
+          customerId,
+          pricing.subtotal,
+          pricing.discount,
+          pricing.total,
+          pricing.couponCode,
+          "USD",
+          razorpayOrder.id,
+          "PENDING",
+        ]
+      );
 
     const orderId =
       orderResult.insertId;
 
-    /*
-    |--------------------------------------------------------------------------
-    | SAVE ORDER ITEMS
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       SAVE ORDER ITEMS
+    ----------------------------------------- */
 
     const savedItems = [];
 
@@ -657,11 +555,9 @@ const createOrder = async (
       );
 
       savedItems.push({
-        id:
-          itemResult.insertId,
+        id: itemResult.insertId,
 
-        order_id:
-          orderId,
+        order_id: orderId,
 
         product_id:
           product.id,
@@ -674,25 +570,15 @@ const createOrder = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | COMMIT
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       COMMIT
+    ----------------------------------------- */
 
     await connection.commit();
 
-    /*
-    |--------------------------------------------------------------------------
-    | IMPORTANT
-    |--------------------------------------------------------------------------
-    |
-    | Download links are NOT created yet.
-    |
-    | They are created only after Razorpay payment
-    | is successfully verified.
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       RESPONSE
+    ----------------------------------------- */
 
     return res.status(200).json({
       success: true,
@@ -702,11 +588,13 @@ const createOrder = async (
 
       freeOrder: false,
 
-      order: razorpayOrder,
+      order:
+        razorpayOrder,
 
       orderNumber,
 
-      items: savedItems,
+      items:
+        savedItems,
 
       downloads: [],
 
@@ -727,16 +615,16 @@ const createOrder = async (
       },
     });
   } catch (error) {
-    /*
-    |--------------------------------------------------------------------------
-    | ROLLBACK
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       ROLLBACK
+    ----------------------------------------- */
 
     if (connection) {
       try {
         await connection.rollback();
-      } catch (rollbackError) {
+      } catch (
+        rollbackError
+      ) {
         console.error(
           "Rollback error:",
           rollbackError
@@ -763,11 +651,9 @@ const createOrder = async (
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| VERIFY PAYMENT
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   VERIFY RAZORPAY PAYMENT
+========================================================= */
 
 const verifyPayment = async (
   req,
@@ -782,11 +668,9 @@ const verifyPayment = async (
       razorpay_signature,
     } = req.body;
 
-    /*
-    |--------------------------------------------------------------------------
-    | VALIDATE PAYMENT DATA
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       VALIDATION
+    ----------------------------------------- */
 
     if (
       !razorpay_order_id ||
@@ -800,15 +684,12 @@ const verifyPayment = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | RAZORPAY SECRET
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       RAZORPAY SECRET
+    ----------------------------------------- */
 
     const secret =
-      process.env
-        .RAZORPAY_KEY_SECRET;
+      process.env.RAZORPAY_KEY_SECRET;
 
     if (!secret) {
       console.error(
@@ -822,11 +703,9 @@ const verifyPayment = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | VERIFY SIGNATURE
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       GENERATE EXPECTED SIGNATURE
+    ----------------------------------------- */
 
     const body =
       razorpay_order_id +
@@ -843,9 +722,11 @@ const verifyPayment = async (
         .digest("hex");
 
     const receivedSignature =
-      String(
-        razorpay_signature
-      );
+      String(razorpay_signature);
+
+    /* -----------------------------------------
+       SIGNATURE LENGTH CHECK
+    ----------------------------------------- */
 
     if (
       expectedSignature.length !==
@@ -857,6 +738,10 @@ const verifyPayment = async (
           "Invalid payment signature",
       });
     }
+
+    /* -----------------------------------------
+       SAFE SIGNATURE COMPARISON
+    ----------------------------------------- */
 
     const isValid =
       crypto.timingSafeEqual(
@@ -878,20 +763,16 @@ const verifyPayment = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | DATABASE
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       DATABASE
+    ----------------------------------------- */
 
     connection =
       await pool.getConnection();
 
-    /*
-    |--------------------------------------------------------------------------
-    | FIND ORDER
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       FIND ORDER
+    ----------------------------------------- */
 
     const [orders] =
       await connection.execute(
@@ -908,9 +789,7 @@ const verifyPayment = async (
           WHERE razorpay_order_id = ?
           LIMIT 1
         `,
-        [
-          razorpay_order_id,
-        ]
+        [razorpay_order_id]
       );
 
     if (orders.length === 0) {
@@ -924,13 +803,13 @@ const verifyPayment = async (
     const order =
       orders[0];
 
-    /*
-    |--------------------------------------------------------------------------
-    | ENSURE USD
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       USD ONLY CHECK
+    ----------------------------------------- */
 
-    if (order.currency !== "USD") {
+    if (
+      order.currency !== "USD"
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -938,11 +817,9 @@ const verifyPayment = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | GET ORDER ITEMS
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       GET ORDER ITEMS
+    ----------------------------------------- */
 
     const [items] =
       await connection.execute(
@@ -959,16 +836,9 @@ const verifyPayment = async (
         [order.id]
       );
 
-    /*
-    |--------------------------------------------------------------------------
-    | GET CUSTOMER
-    |--------------------------------------------------------------------------
-    |
-    | address ❌
-    | city    ❌
-    | pincode ❌
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       GET CUSTOMER
+    ----------------------------------------- */
 
     const [customers] =
       await connection.execute(
@@ -984,19 +854,15 @@ const verifyPayment = async (
           WHERE id = ?
           LIMIT 1
         `,
-        [
-          order.customer_id,
-        ]
+        [order.customer_id]
       );
 
     const customer =
       customers[0] || null;
 
-    /*
-    |--------------------------------------------------------------------------
-    | ALREADY PAID
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       ALREADY PAID
+    ----------------------------------------- */
 
     if (
       order.status === "PAID"
@@ -1030,19 +896,15 @@ const verifyPayment = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | START TRANSACTION
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       START TRANSACTION
+    ----------------------------------------- */
 
     await connection.beginTransaction();
 
-    /*
-    |--------------------------------------------------------------------------
-    | MARK ORDER PAID
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       UPDATE ORDER AS PAID
+    ----------------------------------------- */
 
     await connection.execute(
       `
@@ -1056,18 +918,14 @@ const verifyPayment = async (
       `,
       [
         razorpay_payment_id,
-
         razorpay_signature,
-
         order.id,
       ]
     );
 
-    /*
-    |--------------------------------------------------------------------------
-    | CREATE SECURE DOWNLOAD LINKS
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       CREATE DOWNLOAD LINKS
+    ----------------------------------------- */
 
     const downloads =
       await createDownloadLinks(
@@ -1075,19 +933,15 @@ const verifyPayment = async (
         items
       );
 
-    /*
-    |--------------------------------------------------------------------------
-    | COMMIT
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       COMMIT PAYMENT
+    ----------------------------------------- */
 
     await connection.commit();
 
-    /*
-    |--------------------------------------------------------------------------
-    | SEND PURCHASE EMAIL
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       SEND PURCHASE EMAIL
+    ----------------------------------------- */
 
     try {
       if (
@@ -1149,11 +1003,9 @@ const verifyPayment = async (
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | FINAL RESPONSE
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       SUCCESS RESPONSE
+    ----------------------------------------- */
 
     return res.status(200).json({
       success: true,
@@ -1182,16 +1034,16 @@ const verifyPayment = async (
       downloads,
     });
   } catch (error) {
-    /*
-    |--------------------------------------------------------------------------
-    | ROLLBACK
-    |--------------------------------------------------------------------------
-    */
+    /* -----------------------------------------
+       ROLLBACK
+    ----------------------------------------- */
 
     if (connection) {
       try {
         await connection.rollback();
-      } catch (rollbackError) {
+      } catch (
+        rollbackError
+      ) {
         console.error(
           "Rollback error:",
           rollbackError
@@ -1217,11 +1069,9 @@ const verifyPayment = async (
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| EXPORT
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   EXPORTS
+========================================================= */
 
 module.exports = {
   createOrder,
