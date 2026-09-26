@@ -4,6 +4,7 @@ const express = require("express");
 const path = require("path");
 
 const paymentRoutes = require("./routes/paymentRoutes");
+const paypalRoutes = require("./routes/paypalRoutes");
 const downloadRoutes = require("./routes/downloadRoutes");
 
 const app = express();
@@ -51,7 +52,7 @@ app.get("/api/health", (req, res) => {
   res.json({
     success: true,
     message: "Business Playbook API is healthy",
-    version: "2026-09-18-same-origin",
+    version: "2026-09-24-paypal-sandbox",
     timestamp: new Date().toISOString(),
   });
 });
@@ -71,7 +72,29 @@ app.get("/api", (req, res) => {
    API ROUTES
 ========================================================= */
 
+/*
+|------------------------------------------------------------------
+| Razorpay
+|------------------------------------------------------------------
+*/
+
 app.use("/api/payment", paymentRoutes);
+
+
+/*
+|------------------------------------------------------------------
+| PayPal
+|------------------------------------------------------------------
+*/
+
+app.use("/api/paypal", paypalRoutes);
+
+
+/*
+|------------------------------------------------------------------
+| Downloads
+|------------------------------------------------------------------
+*/
 
 app.use("/api/download", downloadRoutes);
 
@@ -87,7 +110,9 @@ app.use(express.static(frontendPath));
 ========================================================= */
 
 app.get(/^\/(?!api(?:\/|$)).*/, (req, res) => {
-  res.sendFile(path.join(frontendPath, "index.html"));
+  res.sendFile(
+    path.join(frontendPath, "index.html")
+  );
 });
 
 /* =========================================================
@@ -95,12 +120,15 @@ app.get(/^\/(?!api(?:\/|$)).*/, (req, res) => {
 ========================================================= */
 
 app.use((req, res, next) => {
+
   if (req.path.startsWith("/api")) {
+
     return res.status(404).json({
       success: false,
       message: "API route not found",
       path: req.path,
     });
+
   }
 
   next();
@@ -111,7 +139,11 @@ app.use((req, res, next) => {
 ========================================================= */
 
 app.use((req, res) => {
-  res.status(404).send("Page not found");
+
+  res.status(404).send(
+    "Page not found"
+  );
+
 });
 
 /* =========================================================
@@ -119,17 +151,26 @@ app.use((req, res) => {
 ========================================================= */
 
 app.use((err, req, res, next) => {
-  console.error("❌ Server error:");
+
+  console.error(
+    "❌ Server error:"
+  );
+
   console.error(err);
 
   if (req.path.startsWith("/api")) {
+
     return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
+
   }
 
-  res.status(500).send("Internal server error");
+  res.status(500).send(
+    "Internal server error"
+  );
+
 });
 
 module.exports = app;
