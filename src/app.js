@@ -196,10 +196,10 @@ const PAGE_META = {
 const BOOK_META = {
   "how-to-attract-women": {
     title:
-      "How to Attract Women: Confidence & Social Skills Guide",
+      "How to Attract Women | Confidence & Social Skills Guide",
 
     description:
-      "A practical guide for men starting at ground zero: build confidence, social skills and a real social circle. Instant PDF download.",
+      "A practical guide to building confidence, improving social skills and creating genuine connections. Instant PDF download.",
 
     image:
       "/images/books/how-to-attract-women-cover.jpeg",
@@ -242,7 +242,7 @@ const BOOK_META = {
       "30 Day Dopamine Detox Workbook | Focus & Study Habits",
 
     description:
-      "A 30-day workbook to cut phone distractions, set social media limits and build exam-period study focus. Instant PDF download.",
+      "A practical 30-day workbook for reducing phone distractions, improving digital habits and building more consistent study focus.",
 
     image:
       "/images/books/dopamine-detox.jpeg",
@@ -279,10 +279,10 @@ const BOOK_META = {
 
   "unlock-focus": {
     title:
-      "How to Unlock Your Focus: A Guide to Beating Distraction",
+      "How to Unlock Your Focus | A Guide to Beating Distraction",
 
     description:
-      "Understand why you get distracted, then use deep work, digital detox and notification strategies to concentrate. Instant PDF download.",
+      "A practical guide to improving concentration, reducing distractions and building better focus through structured strategies.",
 
     image:
       "/images/books/unlock-focus-cover.jpeg",
