@@ -9,10 +9,14 @@ const {
   sendPurchaseEmail,
 } = require("../services/emailService");
 
+const {
+  createBookAccessToken,
+} = require("../services/bookAccessService");
+
 /* =========================================================
    PRODUCTS
 ========================================================= */
-
+/*
 const PRODUCTS = {
   "how-to-attract-women": {
     id: "how-to-attract-women",
@@ -33,7 +37,12 @@ const PRODUCTS = {
   },
 };
 
-const COLLECTION_PRICE = 45.0;
+const COLLECTION_PRICE = 45.0;*/
+
+const {
+  PRODUCTS,
+  COLLECTION_PRICE,
+} = require("../config/products");
 
 const USD_TO_INR_RATE = Number(
   process.env.USD_TO_INR_RATE || 90
@@ -849,6 +858,57 @@ const verifyPayment = async (
     }
 
     /* -----------------------------------------
+       VERIFY ACTUAL RAZORPAY PAYMENT
+    ----------------------------------------- */
+
+    const razorpayPayment =
+      await razorpay.payments.fetch(
+        razorpay_payment_id
+      );
+    
+    if (
+      razorpayPayment.order_id !==
+      razorpay_order_id
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment does not belong to this order.",
+      });
+    }
+
+    if (
+      razorpayPayment.currency !== razorpayOrder.currency
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment currency does not match the order.",
+      });
+    }
+
+    if (
+      Number(razorpayPayment.amount) !==
+      Number(razorpayOrder.amount)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment amount does not match the order.",
+      });
+    }
+
+    if (
+      razorpayPayment.status !== "captured"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment has not been captured.",
+      });
+    }
+
+    /* -----------------------------------------
        INR CHECK
     ----------------------------------------- */
 
@@ -976,10 +1036,29 @@ const verifyPayment = async (
       );
 
     /* -----------------------------------------
+       CREATE BOOK ACCESS TOKEN
+    ----------------------------------------- */
+
+    const bookAccess =
+      await createBookAccessToken(
+        connection,
+        order.id
+      );
+
+    /* -----------------------------------------
        COMMIT PAYMENT
     ----------------------------------------- */
 
     await connection.commit();
+
+    const frontendUrl =
+      process.env.FRONTEND_PUBLIC_URL ||
+      "https://tresco.firm.in";
+
+    const accessUrl =
+      `${frontendUrl.replace(/\/$/, "")}/my-books?access=${encodeURIComponent(
+        bookAccess.token
+      )}`;
 
     /* -----------------------------------------
        SEND PURCHASE EMAIL
@@ -1035,6 +1114,8 @@ const verifyPayment = async (
 
             total:
               order.total,
+
+            accessUrl,
           });
         }
       }

@@ -19,7 +19,7 @@ const {
 
 /* =========================================================
    PRODUCTS
-========================================================= */
+========================================================= *
 
 const PRODUCTS = {
 
@@ -45,6 +45,12 @@ const PRODUCTS = {
 
 
 const COLLECTION_PRICE = 45.00;
+*/
+
+const {
+  PRODUCTS,
+  COLLECTION_PRICE,
+} = require("../config/products");
 
 const DOWNLOAD_TOKEN_EXPIRY_DAYS =
   Number(
@@ -682,6 +688,14 @@ const createOrder = async (
     await connection.commit();
 
 
+    const frontendUrl =
+      process.env.FRONTEND_PUBLIC_URL ||
+      "https://tresco.firm.in";
+
+    const accessUrl =
+      `${frontendUrl.replace(/\/$/, "")}/my-books?access=${encodeURIComponent(
+        bookAccess.token
+      )}`;
     /* -----------------------------------------
        RESPONSE
     ----------------------------------------- */
@@ -861,7 +875,6 @@ const captureOrder = async (
 
     }
 
-
     /* -----------------------------------------
        DATABASE
     ----------------------------------------- */
@@ -911,6 +924,56 @@ const captureOrder = async (
 
     const order =
       orders[0];
+
+    
+    const purchaseUnit =
+      finalPayPalOrder.purchase_units?.[0];
+      
+    const capture =
+      purchaseUnit?.payments?.captures?.[0];
+      
+    if (!purchaseUnit) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "PayPal purchase details are missing.",
+      });
+    }
+    
+    if (
+      purchaseUnit.reference_id !==
+      order.order_number
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "PayPal order does not match the stored order.",
+      });
+    }
+    
+    if (
+      purchaseUnit.custom_id &&
+      purchaseUnit.custom_id !==
+        order.order_number
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "PayPal order reference does not match.",
+      });
+    }
+    
+    if (
+      !capture ||
+      capture.status !== "COMPLETED"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "PayPal payment capture was not completed.",
+      });
+    }
+
 
 
     /* -----------------------------------------
@@ -1116,6 +1179,12 @@ const captureOrder = async (
         connection,
         items
       );
+    
+    const bookAccess =
+      await createBookAccessToken(
+        connection,
+        order.id
+      );
 
 
     /* -----------------------------------------
@@ -1193,6 +1262,7 @@ const captureOrder = async (
             total:
               order.total,
 
+            accessUrl,
           });
 
         }
@@ -1280,8 +1350,7 @@ const captureOrder = async (
       success: false,
 
       message:
-        error.message ||
-        "PayPal payment verification failed",
+        "Payment processing failed. Please try again.",
 
     });
 

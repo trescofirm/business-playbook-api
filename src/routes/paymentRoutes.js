@@ -9,6 +9,10 @@ const {
 
 const router = express.Router();
 
+const {
+  paymentCreateLimiter,
+  paymentVerifyLimiter,
+} = require("../middleware/rateLimiters");
 
 /* =========================================================
    CREATE PAYMENT ORDER
@@ -16,6 +20,7 @@ const router = express.Router();
 
 router.post(
   "/create-order",
+  paymentCreateLimiter,
   createOrder
 );
 
@@ -26,6 +31,7 @@ router.post(
 
 router.post(
   "/verify-payment",
+  paymentVerifyLimiter,
   verifyPayment
 );
 

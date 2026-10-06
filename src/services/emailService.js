@@ -49,13 +49,14 @@ async function sendPurchaseEmail({
   customer,
   orderNumber,
   total,
+  accessUrl,
 }) {
-  const frontendUrl =
-    process.env.FRONTEND_PUBLIC_URL ||
-    "https://tresco.firm.in";
+  // const frontendUrl =
+  //   process.env.FRONTEND_PUBLIC_URL ||
+  //   "https://tresco.firm.in";
 
   const downloadPage =
-    `${frontendUrl.replace(/\/$/, "")}/my-books`;
+    accessUrl;
 
   const firstName =
     customer?.first_name ||

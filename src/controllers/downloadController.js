@@ -32,6 +32,108 @@ const BOOK_FILES = {
 };
 
 
+//newly omplemented
+const {
+  hashBookAccessToken,
+} = require("../services/bookAccessService");
+
+
+
+async function getBookAccess(req, res) {
+  try {
+    const { token } = req.params;
+
+    if (
+      !token ||
+      !/^[a-f0-9]{64}$/i.test(token)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid access token.",
+      });
+    }
+
+    const tokenHash =
+      hashBookAccessToken(token);
+
+    const [rows] =
+      await pool.execute(
+        `
+          SELECT
+            bat.id,
+            bat.order_id,
+            bat.expires_at,
+            o.order_number,
+            o.status
+          FROM book_access_tokens bat
+          INNER JOIN orders o
+            ON o.id = bat.order_id
+          WHERE bat.token_hash = ?
+          LIMIT 1
+        `,
+        [tokenHash]
+      );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Invalid or expired access link.",
+      });
+    }
+
+    const access = rows[0];
+
+    if (
+      access.status !== "PAID"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Book access is not available.",
+      });
+    }
+
+    if (
+      new Date(access.expires_at) <
+      new Date()
+    ) {
+      return res.status(410).json({
+        success: false,
+        message: "This book access link has expired.",
+      });
+    }
+
+    await pool.execute(
+      `
+        UPDATE book_access_tokens
+        SET last_used_at = NOW()
+        WHERE id = ?
+      `,
+      [access.id]
+    );
+
+    // Continue here with the purchased-item lookup
+    // and fresh download-token generation.
+  } catch (error) {
+    console.error(
+      "Get book access error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load purchased books.",
+    });
+  }
+}
+
+
+
+
+
+
+
+
+
 /* =========================================================
    DOWNLOAD BOOK
 ========================================================= */
@@ -544,4 +646,5 @@ const downloadBook = async (
 
 module.exports = {
   downloadBook,
+  getBookAccess,
 };
