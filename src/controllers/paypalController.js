@@ -16,6 +16,9 @@ const {
   sendPurchaseEmail,
 } = require("../services/emailService");
 
+const {
+  createBookAccessToken,
+} = require("../services/bookAccessService");
 
 /* =========================================================
    PRODUCTS
@@ -687,15 +690,27 @@ const createOrder = async (
 
     await connection.commit();
 
+    /* -----------------------------------------
+       PAYPAL APPROVAL URL
+    ----------------------------------------- */
 
-    const frontendUrl =
-      process.env.FRONTEND_PUBLIC_URL ||
-      "https://tresco.firm.in";
+    const approvalLink =
+      paypalOrder.links?.find(
+        (link) =>
+          link.rel === "approve" ||
+          link.rel === "payer-action"
+      );
+    
+    const approvalUrl =
+      approvalLink?.href || null;
+    
+    if (!approvalUrl) {
+    
+      throw new Error(
+        "PayPal approval URL was not returned."
+      );
+    }
 
-    const accessUrl =
-      `${frontendUrl.replace(/\/$/, "")}/my-books?access=${encodeURIComponent(
-        bookAccess.token
-      )}`;
     /* -----------------------------------------
        RESPONSE
     ----------------------------------------- */
@@ -711,6 +726,8 @@ const createOrder = async (
         paypalOrder.id,
 
       orderNumber,
+
+      approvalUrl,
 
       items:
         savedItems,
@@ -1193,6 +1210,14 @@ const captureOrder = async (
 
     await connection.commit();
 
+    const frontendUrl =
+      process.env.FRONTEND_PUBLIC_URL ||
+      "https://tresco.firm.in";
+
+    const accessUrl =
+      `${frontendUrl.replace(/\/$/, "")}/my-books?access=${encodeURIComponent(
+        bookAccess.token
+      )}`;
 
     /* -----------------------------------------
        PURCHASE EMAIL

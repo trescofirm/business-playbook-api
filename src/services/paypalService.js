@@ -148,6 +148,12 @@ async function createPayPalOrder({
 
             user_action:
               "PAY_NOW",
+
+            return_url:
+              `${process.env.FRONTEND_PUBLIC_URL || "http://localhost:5000"}/checkout`,
+
+            cancel_url:
+              `${process.env.FRONTEND_PUBLIC_URL || "http://localhost:5000"}/checkout`,
           },
 
         }),

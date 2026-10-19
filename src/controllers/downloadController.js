@@ -6,6 +6,9 @@ const fs = require("fs");
 
 const { pool } = require("../config/db");
 
+const {
+  hashBookAccessToken,
+} = require("../services/bookAccessService");
 
 /* =========================================================
    BOOK FILE SOURCE OF TRUTH
@@ -32,69 +35,63 @@ const BOOK_FILES = {
 };
 
 
-//newly omplemented
-const {
-  hashBookAccessToken,
-} = require("../services/bookAccessService");
-
 
 
 async function getBookAccess(req, res) {
+  let connection;
+
   try {
     const { token } = req.params;
 
-    if (
-      !token ||
-      !/^[a-f0-9]{64}$/i.test(token)
-    ) {
+    // 1. Validate the access token.
+    if (!token || !/^[a-f0-9]{64}$/i.test(token)) {
       return res.status(400).json({
         success: false,
         message: "Invalid access token.",
       });
     }
 
-    const tokenHash =
-      hashBookAccessToken(token);
+    const tokenHash = hashBookAccessToken(token);
 
-    const [rows] =
-      await pool.execute(
-        `
-          SELECT
-            bat.id,
-            bat.order_id,
-            bat.expires_at,
-            o.order_number,
-            o.status
-          FROM book_access_tokens bat
-          INNER JOIN orders o
-            ON o.id = bat.order_id
-          WHERE bat.token_hash = ?
-          LIMIT 1
-        `,
-        [tokenHash]
-      );
+    // 2. Find the access token and its associated order.
+    const [accessRows] = await pool.execute(
+      `
+        SELECT
+          bat.id AS access_token_id,
+          bat.order_id,
+          bat.expires_at AS access_expires_at,
+          o.order_number,
+          o.status AS order_status
+        FROM book_access_tokens bat
+        INNER JOIN orders o
+          ON o.id = bat.order_id
+        WHERE bat.token_hash = ?
+        LIMIT 1
+      `,
+      [tokenHash]
+    );
 
-    if (!rows.length) {
+    if (accessRows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Invalid or expired access link.",
       });
     }
 
-    const access = rows[0];
+    const access = accessRows[0];
 
-    if (
-      access.status !== "PAID"
-    ) {
+    // 3. Only paid orders can access purchased books.
+    if (access.order_status !== "PAID") {
       return res.status(403).json({
         success: false,
         message: "Book access is not available.",
       });
     }
 
+    // 4. Check whether the access link has expired.
     if (
-      new Date(access.expires_at) <
-      new Date()
+      !access.access_expires_at ||
+      new Date(access.access_expires_at).getTime() <= Date.now()
     ) {
       return res.status(410).json({
         success: false,
@@ -102,29 +99,165 @@ async function getBookAccess(req, res) {
       });
     }
 
-    await pool.execute(
+    // 5. Retrieve the actual items belonging to this order.
+    const [items] = await pool.execute(
+      `
+        SELECT
+          id,
+          product_id,
+          product_name,
+          price
+        FROM order_items
+        WHERE order_id = ?
+        ORDER BY id ASC
+      `,
+      [access.order_id]
+    );
+
+    if (items.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No purchased books were found for this order.",
+        books: [],
+      });
+    }
+
+    // 6. Confirm every purchased product has a permitted PDF.
+    for (const item of items) {
+      if (!BOOK_FILES[item.product_id]) {
+        console.error(
+          "No configured PDF for purchased product:",
+          item.product_id
+        );
+
+        return res.status(500).json({
+          success: false,
+          message: "A purchased book is not configured for download.",
+        });
+      }
+    }
+
+    const backendUrl = (
+      process.env.BACKEND_PUBLIC_URL ||
+      `http://localhost:${process.env.PORT || 5000}`
+    ).replace(/\/$/, "");
+
+    const downloadExpiryDays = Math.max(
+      1,
+      Number(process.env.DOWNLOAD_TOKEN_EXPIRY_DAYS || 30)
+    );
+
+    const configuredExpiry = Date.now() +
+      downloadExpiryDays * 24 * 60 * 60 * 1000;
+
+    const accessExpiry = new Date(
+      access.access_expires_at
+    ).getTime();
+
+    // Download links cannot outlive the parent access link.
+    const expiresAt = new Date(
+      Math.min(configuredExpiry, accessExpiry)
+    );
+
+    // 7. Create fresh, hashed download tokens for the purchased books.
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const books = [];
+
+    for (const item of items) {
+      const rawDownloadToken = crypto
+        .randomBytes(32)
+        .toString("hex");
+
+      const downloadTokenHash = crypto
+        .createHash("sha256")
+        .update(rawDownloadToken)
+        .digest("hex");
+
+      await connection.execute(
+        `
+          INSERT INTO download_tokens
+          (
+            order_item_id,
+            token_hash,
+            expires_at,
+            download_count,
+            max_downloads
+          )
+          VALUES (?, ?, ?, 0, 5)
+        `,
+        [
+          item.id,
+          downloadTokenHash,
+          expiresAt,
+        ]
+      );
+
+      const downloadUrl =
+        `${backendUrl}/api/download/${rawDownloadToken}`;
+
+      books.push({
+        id: item.id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        title: item.product_name,
+        price: Number(item.price),
+        download_url: downloadUrl,
+        downloadUrl,
+        expires_at: expiresAt.toISOString(),
+        max_downloads: 5,
+      });
+    }
+
+    // 8. Record that the access link was used.
+    await connection.execute(
       `
         UPDATE book_access_tokens
         SET last_used_at = NOW()
         WHERE id = ?
       `,
-      [access.id]
+      [access.access_token_id]
     );
 
-    // Continue here with the purchased-item lookup
-    // and fresh download-token generation.
+    await connection.commit();
+
+    // 9. Return the purchased books to the frontend.
+    res.setHeader("Cache-Control", "private, no-store");
+
+    return res.status(200).json({
+      success: true,
+      message: "Purchased books loaded successfully.",
+      orderNumber: access.order_number,
+      books,
+      items: books,
+    });
   } catch (error) {
-    console.error(
-      "Get book access error:",
-      error
-    );
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error(
+          "Book access rollback error:",
+          rollbackError
+        );
+      }
+    }
+
+    console.error("Get book access error:", error);
 
     return res.status(500).json({
       success: false,
       message: "Unable to load purchased books.",
     });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 }
+
+
 
 
 
