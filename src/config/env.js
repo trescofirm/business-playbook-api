@@ -68,7 +68,7 @@ function validateEnv() {
 
     if (
       process.env.PAYPAL_BASE_URL !==
-      "https://api-m.sandbox.paypal.com"
+      "https://api-m.paypal.com"
     ) {
       throw new Error(
         "Production PayPal must use the live API."
