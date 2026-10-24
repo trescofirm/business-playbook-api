@@ -1,0 +1,7 @@
+If you use Google AdSense or another advertising network, obtain the 
+exact authorization record from that provider's account and put it in 
+this file. For example, a Google AdSense record follows this format:
+
+google.com, pub-YOUR_ACTUAL_PUBLISHER_ID, DIRECT, f08c47fec0942fa0
+
+Replace pub-YOUR_ACTUAL_PUBLISHER_ID with your real publisher ID; do not deploy the placeholder.

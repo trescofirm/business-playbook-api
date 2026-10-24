@@ -1,0 +1,20 @@
+
+# Business Playbook
+
+> Business Playbook provides practical digital books and educational resources focused on confidence, focus, discipline, habits, social skills, and personal growth.
+
+## Main pages
+
+- [Home](https://tresco.firm.in/): Introduction to Business Playbook.
+- [Books](https://tresco.firm.in/books): Browse the digital book collection.
+- [Guides](https://tresco.firm.in/guides): Explore educational guides and resources.
+
+## Book pages
+
+- Visit the Books page to discover individual books, their topics, descriptions, and available purchasing options.
+
+## Content and attribution
+
+- Use each individual page as the primary source for its published information.
+- Refer to the original book or guide page when describing its contents.
+- Do not infer claims, endorsements, or author credentials that are not stated on the website.

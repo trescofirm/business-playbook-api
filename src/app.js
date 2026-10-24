@@ -155,6 +155,17 @@ const PAGE_META = {
     type: "website",
   },
 
+  "/guides": {
+    title: "Practical Guides for Confidence, Focus & Personal Growth | Business Playbook",
+    
+    description:
+      "Explore practical guides on social confidence, building connections, reducing phone distractions, improving concentration, and developing better habits.",
+    
+    image: "/images/og-image.png",
+    
+    type: "website",
+  },
+
   "/terms": {
     title: "Terms & Conditions | Business Playbook",
 
@@ -227,7 +238,7 @@ const BOOK_META = {
         true,
 
       author:
-        "Vishal Kumar",
+        "Dr. Kenneth Anderson",
 
       category:
         "Confidence & Social Skills",
@@ -484,7 +495,7 @@ app.get(
         "utf8"
       )
       .replace(
-        /<!--SEO_START-->[\s\S]*?<!--SEO_END-->/,
+        /<!--\s*SEO_START\s*-->[\s\S]*?<!--\s*SEO_END\s*-->/,
         `<!--SEO_START-->${head}<!--SEO_END-->`
       );
 
@@ -624,7 +635,7 @@ app.use(
 ========================================================= */
 
 app.get(
-  ["/", "/books", "/terms", "/privacy", "/refund"],
+  ["/", "/books", "/guides", "/terms", "/privacy", "/refund"],
   (req, res, next) => {
     const meta = PAGE_META[req.path];
 
@@ -654,7 +665,7 @@ app.get(
         "utf8"
       )
       .replace(
-        /<!--SEO_START-->[\s\S]*?<!--SEO_END-->/,
+        /<!--\s*SEO_START\s*-->[\s\S]*?<!--\s*SEO_END\s*-->/,
         `<!--SEO_START-->${head}<!--SEO_END-->`
       );
 
@@ -795,12 +806,12 @@ app.get(
         content="${escapeHtml(image)}"
       />
 
-      <script type="application/ld+json">
-        ${JSON.stringify(productSchema)}
+      <script id="bp-product-schema" type="application/ld+json">
+        ${JSON.stringify(productSchema).replace(/</g, "\\u003c")}
       </script>
-
-      <script type="application/ld+json">
-        ${JSON.stringify(breadcrumbSchema)}
+        
+      <script id="bp-breadcrumb-schema" type="application/ld+json">
+        ${JSON.stringify(breadcrumbSchema).replace(/</g, "\\u003c")}
       </script>
     `;
 
@@ -813,7 +824,7 @@ app.get(
         "utf8"
       )
       .replace(
-        /<!--SEO_START-->[\s\S]*?<!--SEO_END-->/,
+        /<!--\s*SEO_START\s*-->[\s\S]*?<!--\s*SEO_END\s*-->/,
         `<!--SEO_START-->${head}<!--SEO_END-->`
       );
 
@@ -835,6 +846,7 @@ app.get(
 const VALID_FRONTEND_ROUTES = new Set([
   "/",
   "/books",
+  "/guides",
   "/checkout",
   "/terms",
   "/privacy",
