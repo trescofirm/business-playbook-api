@@ -9,6 +9,24 @@ const {
 validateEnv();
 
 const app = require("./app");
+
+app.set("trust proxy", true);
+
+app.use((req, res, next) => {
+  const host = (req.headers.host || "").toLowerCase();
+  const forwardedProto = req.headers["x-forwarded-proto"];
+
+  const isWww = host.startsWith("www.");
+  const isHttp = forwardedProto === "http";
+
+  if (isWww || isHttp) {
+    const cleanHost = host.replace(/^www\./, "");
+    return res.redirect(301, `https://${cleanHost}${req.originalUrl}`);
+  }
+
+  next();
+});
+
 const {
   testDatabaseConnection,
 } = require("./config/db");
