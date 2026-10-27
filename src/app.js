@@ -126,6 +126,32 @@ const GUIDE_META = {
 
 const frontendPath = path.join(__dirname, "../public");
 
+const SEO_BLOCK = /<!--\s*SEO_START\s*-->[\s\S]*?<!--\s*SEO_END\s*-->/;
+
+let SNAPSHOTS = {};
+try {
+  SNAPSHOTS = JSON.parse(
+    fs.readFileSync(path.join(frontendPath, "seo-snapshots.json"), "utf8")
+  );
+} catch (err) {
+  console.warn("seo-snapshots.json not found - pages will be served without static body text");
+}
+
+const renderIndex = (head, route) => {
+  let html = fs
+    .readFileSync(path.join(frontendPath, "index.html"), "utf8")
+    .replace(SEO_BLOCK, () => `<!--SEO_START-->${head}<!--SEO_END-->`);
+
+  const snap = SNAPSHOTS[route];
+  if (snap && snap.body) {
+    html = html.replace(
+      '<div id="root"></div>',
+      () => `<div id="root">${snap.body}</div>`
+    );
+  }
+  return html;
+};
+
 
 /* =========================================================
    PAGE SEO METADATA
@@ -134,7 +160,7 @@ const frontendPath = path.join(__dirname, "../public");
 const PAGE_META = {
   "/": {
     title:
-      "Business Playbook | Practical Books for Confidence, Focus & Personal Growth",
+      "Business Playbook | Books for Confidence, Focus & Growth",
 
     description:
       "Explore practical digital books designed to help you build confidence, improve focus, develop stronger habits, and create meaningful personal growth.",
@@ -145,10 +171,10 @@ const PAGE_META = {
   },
 
   "/books": {
-    title: "Books | Business Playbook",
+    title: "Focus, Confidence & Habits Books | Business Playbook",
 
     description:
-      "Explore practical books for confidence, focus, habits, productivity and personal growth.",
+      "Browse Business Playbook eBooks and workbooks on focus, concentration, dopamine detox and social confidence. Instant PDF download.",
 
     image: "/images/og-image.png",
 
@@ -156,7 +182,7 @@ const PAGE_META = {
   },
 
   "/guides": {
-    title: "Practical Guides for Confidence, Focus & Personal Growth | Business Playbook",
+    title: "Guides on Focus, Confidence & Habits | Business Playbook",
     
     description:
       "Explore practical guides on social confidence, building connections, reducing phone distractions, improving concentration, and developing better habits.",
@@ -213,10 +239,10 @@ const BOOK_META = {
       "A practical guide to building confidence, improving social skills and creating genuine connections. Instant PDF download.",
 
     image:
-      "/images/books/how-to-attract-women-cover.jpeg",
+      "/images/books/how-to-attract-women-cover.jpg",
 
     mockup:
-      "/images/books/how-to-attract-women-cover.jpeg",
+      "/images/books/how-to-attract-women-cover.jpg",
 
     product: {
       name:
@@ -256,10 +282,10 @@ const BOOK_META = {
       "A practical 30-day workbook for reducing phone distractions, improving digital habits and building more consistent study focus.",
 
     image:
-      "/images/books/dopamine-detox.jpeg",
+      "/images/books/dopamine-detox.jpg",
 
     mockup:
-      "/images/books/book2-mockup.jpeg",
+      "/images/books/book2-mockup.jpg",
 
     product: {
       name:
@@ -296,7 +322,7 @@ const BOOK_META = {
       "A practical guide to improving concentration, reducing distractions and building better focus through structured strategies.",
 
     image:
-      "/images/books/unlock-focus-cover.jpeg",
+      "/images/books/unlock-focus.jpeg",
 
     mockup:
       "/images/books/unlock-focus.jpeg",
@@ -486,18 +512,7 @@ app.get(
         type: "article",
       });
 
-    const html = fs
-      .readFileSync(
-        path.join(
-          frontendPath,
-          "index.html"
-        ),
-        "utf8"
-      )
-      .replace(
-        /<!--\s*SEO_START\s*-->[\s\S]*?<!--\s*SEO_END\s*-->/,
-        `<!--SEO_START-->${head}<!--SEO_END-->`
-      );
+    const html = renderIndex(head, `/guides/${req.params.slug}`);
 
     res.send(html);
   }
@@ -659,15 +674,7 @@ app.get(
       type: meta.type,
     });
 
-    const html = fs
-      .readFileSync(
-        path.join(frontendPath, "index.html"),
-        "utf8"
-      )
-      .replace(
-        /<!--\s*SEO_START\s*-->[\s\S]*?<!--\s*SEO_END\s*-->/,
-        `<!--SEO_START-->${head}<!--SEO_END-->`
-      );
+    const html = renderIndex(head, req.path.replace(/\/+$/, "") || "/");
 
     res.send(html);
   }
@@ -680,12 +687,19 @@ app.get(
 app.get(
   "/books/:slug",
   (req, res, next) => {
-    const meta =
-      BOOK_META[req.params.slug];
+    const baseMeta = BOOK_META[req.params.slug];
 
-    if (!meta) {
+    if (!baseMeta) {
       return next();
     }
+
+    const snap = SNAPSHOTS[`/books/${req.params.slug}`] || {};
+
+    const meta = {
+      ...baseMeta,
+      title: snap.title || baseMeta.title,
+      description: snap.description || baseMeta.description,
+    };
 
     const url =
       `https://tresco.firm.in/books/${req.params.slug}`;
@@ -700,7 +714,7 @@ app.get(
         meta.product.name,
 
       description:
-        meta.product.description,
+        snap.productDescription || meta.product.description,
 
       price:
         meta.product.price,
@@ -815,18 +829,7 @@ app.get(
       </script>
     `;
 
-    const html = fs
-      .readFileSync(
-        path.join(
-          frontendPath,
-          "index.html"
-        ),
-        "utf8"
-      )
-      .replace(
-        /<!--\s*SEO_START\s*-->[\s\S]*?<!--\s*SEO_END\s*-->/,
-        `<!--SEO_START-->${head}<!--SEO_END-->`
-      );
+    const html = renderIndex(head, `/books/${req.params.slug}`);
 
     res.send(html);
   }
