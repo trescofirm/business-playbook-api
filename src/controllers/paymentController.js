@@ -2,15 +2,8 @@
 
 const crypto = require("crypto");
 
-const {
-  pool,
-} = require("../config/db");
-
-const {
-  createPayPalOrder,
-  capturePayPalOrder,
-  getPayPalOrder,
-} = require("../services/paypalService");
+const razorpay = require("../config/razorpay");
+const { pool } = require("../config/db");
 
 const {
   sendPurchaseEmail,
@@ -22,10 +15,9 @@ const {
 
 /* =========================================================
    PRODUCTS
-========================================================= *
-
+========================================================= */
+/*
 const PRODUCTS = {
-
   "how-to-attract-women": {
     id: "how-to-attract-women",
     name: "How to Attract Women",
@@ -35,208 +27,150 @@ const PRODUCTS = {
   "dopamine-detox": {
     id: "dopamine-detox",
     name: "30 Day Dopamine Detox Workbook",
-    price: 15.00,
+    price: 15.0,
   },
 
   "unlock-focus": {
     id: "unlock-focus",
     name: "How to Unlock Your Focus",
-    price: 15.00,
+    price: 15.0,
   },
-
 };
 
-
-const COLLECTION_PRICE = 45.00;
-*/
+const COLLECTION_PRICE = 45.0;*/
 
 const {
   PRODUCTS,
   COLLECTION_PRICE,
 } = require("../config/products");
 
-const DOWNLOAD_TOKEN_EXPIRY_DAYS =
-  Number(
-    process.env.DOWNLOAD_TOKEN_EXPIRY_DAYS || 30
-  );
+const USD_TO_INR_RATE = Number(
+  process.env.USD_TO_INR_RATE || 90
+);
 
+const DOWNLOAD_TOKEN_EXPIRY_DAYS = Number(
+  process.env.DOWNLOAD_TOKEN_EXPIRY_DAYS || 30
+);
 
 /* =========================================================
    HELPERS
 ========================================================= */
 
 function roundMoney(value) {
-
   return (
     Math.round(
       (Number(value) + Number.EPSILON) * 100
     ) / 100
   );
-
 }
-
 
 function generateOrderNumber() {
+  const timestamp = Date.now();
 
-  const timestamp =
-    Date.now();
+  const random = crypto
+    .randomBytes(3)
+    .toString("hex")
+    .toUpperCase();
 
-  const random =
-    crypto
-      .randomBytes(3)
-      .toString("hex")
-      .toUpperCase();
-
-  return `BP-PAYPAL-${timestamp}-${random}`;
+  return `BP-${timestamp}-${random}`;
 }
 
-
 function normalizeItems(items) {
-
-  if (
-    !Array.isArray(items) ||
-    items.length === 0
-  ) {
-
-    throw new Error(
-      "No products selected"
-    );
-
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("No products selected");
   }
-
 
   const uniqueIds = [
     ...new Set(
-      items.map(
-        (item) => item.id
-      )
+      items.map((item) => item.id)
     ),
   ];
 
-
-  if (
-    uniqueIds.length !== items.length
-  ) {
-
+  if (uniqueIds.length !== items.length) {
     throw new Error(
       "Duplicate products are not allowed"
     );
-
   }
 
-
   if (uniqueIds.length > 3) {
-
     throw new Error(
       "Maximum 3 products can be purchased"
     );
-
   }
 
-
   return uniqueIds.map((id) => {
-
-    const product =
-      PRODUCTS[id];
+    const product = PRODUCTS[id];
 
     if (!product) {
-
       throw new Error(
         `Invalid product: ${id}`
       );
-
     }
 
     return product;
-
   });
-
 }
-
 
 /* =========================================================
    PRICING
+   USD ONLY
+   PIR = 10% DISCOUNT
 ========================================================= */
 
 function calculatePricing(
   products,
   couponCode
 ) {
-
-  const individualSubtotal =
-    roundMoney(
-      products.reduce(
-        (sum, product) =>
-          sum + product.price,
-        0
-      )
-    );
-
+  const individualSubtotal = roundMoney(
+    products.reduce(
+      (sum, product) =>
+        sum + product.price,
+      0
+    )
+  );
 
   const isCompleteCollection =
     products.length === 3;
-
 
   const subtotal =
     isCompleteCollection
       ? COLLECTION_PRICE
       : individualSubtotal;
 
-
   const bundleSaving =
     isCompleteCollection
       ? roundMoney(
           individualSubtotal -
-          COLLECTION_PRICE
+            COLLECTION_PRICE
         )
       : 0;
 
-
-  const normalizedCoupon =
-    String(
-      couponCode || ""
-    )
-      .trim()
-      .toUpperCase();
-
+  const normalizedCoupon = String(
+    couponCode || ""
+  )
+    .trim()
+    .toUpperCase();
 
   let discount = 0;
 
-
-  if (
-    normalizedCoupon === "PIR"
-  ) {
-
-    discount =
-      roundMoney(
-        subtotal * 0.10
-      );
-
-  } else if (
-    normalizedCoupon
-  ) {
-
+  /* Only PIR is supported */
+  if (normalizedCoupon === "PIR") {
+    discount = roundMoney(
+      subtotal * 0.95
+    );
+  } else if (normalizedCoupon) {
     throw new Error(
       "Invalid coupon. Use PIR."
     );
-
   }
 
+  let total = roundMoney(
+    subtotal - discount
+  );
 
-  const total =
-    roundMoney(
-      subtotal - discount
-    );
-
-
-  if (total <= 0) {
-
-    throw new Error(
-      "A paid order must have a total greater than zero."
-    );
-
+  if (total < 0) {
+    total = 0;
   }
-
 
   return {
     individualSubtotal,
@@ -247,46 +181,35 @@ function calculatePricing(
     couponCode:
       normalizedCoupon || null,
   };
-
 }
-
 
 /* =========================================================
    DOWNLOAD TOKEN
 ========================================================= */
 
 function generateDownloadToken() {
-
   return crypto
     .randomBytes(32)
     .toString("hex");
-
 }
 
-
 function hashDownloadToken(token) {
-
   return crypto
     .createHash("sha256")
     .update(token)
     .digest("hex");
-
 }
-
 
 function getDownloadExpiryDate() {
-
   return new Date(
     Date.now() +
-    DOWNLOAD_TOKEN_EXPIRY_DAYS *
-    24 *
-    60 *
-    60 *
-    1000
+      DOWNLOAD_TOKEN_EXPIRY_DAYS *
+        24 *
+        60 *
+        60 *
+        1000
   );
-
 }
-
 
 /* =========================================================
    CREATE DOWNLOAD LINKS
@@ -294,77 +217,60 @@ function getDownloadExpiryDate() {
 
 async function createDownloadLinks(
   connection,
-  items,
-  forceNew = false
+  items
 ) {
-
   const backendUrl =
     process.env.BACKEND_PUBLIC_URL ||
     `http://localhost:${
       process.env.PORT || 5000
     }`;
 
-
   const downloads = [];
 
-
-  for (
-    const item of items
-  ) {
-
-    const [
-      existingTokens,
-    ] =
+  for (const item of items) {
+    /*
+      Check whether a token already exists
+      for this order item.
+    */
+    const [existingTokens] =
       await connection.execute(
         `
-        SELECT
-          id,
-          expires_at,
-          download_count,
-          max_downloads
-        FROM download_tokens
-        WHERE order_item_id = ?
-        LIMIT 1
+          SELECT
+            id,
+            expires_at,
+            download_count,
+            max_downloads
+          FROM download_tokens
+          WHERE order_item_id = ?
+          LIMIT 1
         `,
         [item.id]
       );
 
-
-    if (
-      existingTokens.length > 0 &&
-      !forceNew
-    ) {
-
+    if (existingTokens.length > 0) {
       continue;
-
     }
-
 
     const rawToken =
       generateDownloadToken();
 
-
     const tokenHash =
-      hashDownloadToken(
-        rawToken
-      );
-
+      hashDownloadToken(rawToken);
 
     const expiresAt =
       getDownloadExpiryDate();
 
-
     await connection.execute(
       `
-      INSERT INTO download_tokens
-      (
-        order_item_id,
-        token_hash,
-        expires_at,
-        download_count,
-        max_downloads
-      )
-      VALUES (?, ?, ?, 0, 5)
+        INSERT INTO download_tokens
+        (
+          order_item_id,
+          token_hash,
+          expires_at,
+          download_count,
+          max_downloads
+        )
+        VALUES (?, ?, ?, 0, 5)
       `,
       [
         item.id,
@@ -373,9 +279,7 @@ async function createDownloadLinks(
       ]
     );
 
-
     downloads.push({
-
       productId:
         item.product_id,
 
@@ -389,52 +293,53 @@ async function createDownloadLinks(
         expiresAt.toISOString(),
 
       maxDownloads: 5,
-
     });
-
   }
 
-
   return downloads;
-
 }
 
-
 /* =========================================================
-   CREATE PAYPAL ORDER
+   CREATE RAZORPAY ORDER
 ========================================================= */
 
 const createOrder = async (
   req,
   res
 ) => {
-
   let connection;
 
-
   try {
-
     const {
       items,
       couponCode,
       customer,
     } = req.body;
 
-
     /* -----------------------------------------
-       CUSTOMER
+       CUSTOMER VALIDATION
     ----------------------------------------- */
 
     if (!customer) {
-
       return res.status(400).json({
         success: false,
         message:
           "Customer details are required",
       });
-
     }
 
+    /*
+      IMPORTANT:
+
+      Only these customer fields are
+      required now:
+
+      firstName
+      lastName
+      email
+      country
+      state
+    */
 
     const requiredFields = [
       "firstName",
@@ -444,52 +349,36 @@ const createOrder = async (
       "state",
     ];
 
-
-    for (
-      const field of requiredFields
-    ) {
-
+    for (const field of requiredFields) {
       if (!customer[field]) {
-
         return res.status(400).json({
           success: false,
           message:
             `${field} is required`,
         });
-
       }
-
     }
 
-
     /* -----------------------------------------
-       EMAIL
+       EMAIL VALIDATION
     ----------------------------------------- */
 
-    const email =
-      String(
-        customer.email
-      )
-        .trim()
-        .toLowerCase();
-
+    const email = String(
+      customer.email
+    )
+      .trim()
+      .toLowerCase();
 
     const emailRegex =
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-
-    if (
-      !emailRegex.test(email)
-    ) {
-
+    if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
         message:
           "Invalid email address",
       });
-
     }
-
 
     /* -----------------------------------------
        PRODUCTS
@@ -497,7 +386,6 @@ const createOrder = async (
 
     const products =
       normalizeItems(items);
-
 
     /* -----------------------------------------
        PRICING
@@ -509,14 +397,41 @@ const createOrder = async (
         couponCode
       );
 
-
     /* -----------------------------------------
-       PAYPAL = USD
+       RAZORPAY = INR FOR INDIA ONLY
     ----------------------------------------- */
 
-    const currency =
-      "USD";
+    const isIndia =
+      String(customer.country || "")
+        .trim()
+        .toLowerCase() === "india";
 
+    if (!isIndia) {
+      throw new Error(
+        "Razorpay checkout is available for Indian customers only. Please use PayPal for international orders."
+      );
+    }
+
+    if (!Number.isFinite(USD_TO_INR_RATE) || USD_TO_INR_RATE <= 0) {
+      throw new Error(
+        "USD_TO_INR_RATE is not configured correctly."
+      );
+    }
+
+    const currency = "INR";
+
+    const inrPricing = {
+      subtotal: roundMoney(pricing.subtotal * USD_TO_INR_RATE),
+      bundleSaving: roundMoney(pricing.bundleSaving * USD_TO_INR_RATE),
+      discount: roundMoney(pricing.discount * USD_TO_INR_RATE),
+      total: roundMoney(pricing.total * USD_TO_INR_RATE),
+    };
+
+    if (inrPricing.total <= 0) {
+      throw new Error(
+        "A paid order must have a total greater than zero."
+      );
+    }
 
     /* -----------------------------------------
        ORDER NUMBER
@@ -525,44 +440,68 @@ const createOrder = async (
     const orderNumber =
       generateOrderNumber();
 
-
     /* -----------------------------------------
-       PAYPAL ORDER
+       RAZORPAY ORDER
     ----------------------------------------- */
 
-    const paypalOrder =
-      await createPayPalOrder({
+    const razorpayOrder =
+      await razorpay.orders.create({
+        amount: Math.round(
+          inrPricing.total * 100
+        ),
 
-        amount:
-          pricing.total,
+        currency: "INR",
 
-        currency,
+        receipt: orderNumber,
 
-        orderNumber,
+        notes: {
+          order_number:
+            orderNumber,
 
+          products:
+            products
+              .map(
+                (product) =>
+                  product.id
+              )
+              .join(","),
+        },
       });
 
-
     /* -----------------------------------------
-       DATABASE
+       DATABASE CONNECTION
     ----------------------------------------- */
 
     connection =
       await pool.getConnection();
 
-
     await connection.beginTransaction();
 
-
     /* -----------------------------------------
-       CUSTOMER
+       SAVE CUSTOMER
+
+       CURRENT DB:
+
+       id
+       first_name
+       last_name
+       email
+       country
+       state
+       notes
+       created_at
+       updated_at
+
+       NO:
+       address
+       city
+       pincode
     ----------------------------------------- */
 
     const [
       customerResult,
-    ] =
-      await connection.execute(
-        `
+    ] = await connection.execute(
+      `
         INSERT INTO customers
         (
           first_name,
@@ -573,79 +512,68 @@ const createOrder = async (
           notes
         )
         VALUES (?, ?, ?, ?, ?, ?)
-        `,
-        [
-          customer.firstName,
-          customer.lastName,
-          email,
-          customer.country,
-          customer.state || null,
-          customer.notes || null,
-        ]
-      );
-
+      `,
+      [
+        customer.firstName,
+        customer.lastName,
+        email,
+        customer.country,
+        customer.state || null,
+        customer.notes || null,
+      ]
+    );
 
     const customerId =
       customerResult.insertId;
 
-
     /* -----------------------------------------
-       ORDER
+       SAVE ORDER
     ----------------------------------------- */
 
-    const [
-      orderResult,
-    ] =
+    const [orderResult] =
       await connection.execute(
         `
-        INSERT INTO orders
-        (
-          order_number,
-          customer_id,
-          subtotal,
-          discount,
-          total,
-          coupon_code,
-          currency,
-          paypal_order_id,
-          status
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO orders
+          (
+            order_number,
+            customer_id,
+            subtotal,
+            discount,
+            total,
+            coupon_code,
+            currency,
+            razorpay_order_id,
+            status
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           orderNumber,
           customerId,
-          pricing.subtotal,
-          pricing.discount,
-          pricing.total,
+          inrPricing.subtotal,
+          inrPricing.discount,
+          inrPricing.total,
           pricing.couponCode,
-          "USD",
-          paypalOrder.id,
+          "INR",
+          razorpayOrder.id,
           "PENDING",
         ]
       );
 
-
     const orderId =
       orderResult.insertId;
 
-
     /* -----------------------------------------
-       ORDER ITEMS
+       SAVE ORDER ITEMS
     ----------------------------------------- */
 
     const savedItems = [];
 
-
-    for (
-      const product of products
-    ) {
-
+    for (const product of products) {
       const [
         itemResult,
-      ] =
-        await connection.execute(
-          `
+      ] = await connection.execute(
+        `
           INSERT INTO order_items
           (
             order_id,
@@ -654,23 +582,19 @@ const createOrder = async (
             price
           )
           VALUES (?, ?, ?, ?)
-          `,
-          [
-            orderId,
-            product.id,
-            product.name,
-            product.price,
-          ]
-        );
-
+        `,
+        [
+          orderId,
+          product.id,
+          product.name,
+          product.price,
+        ]
+      );
 
       savedItems.push({
+        id: itemResult.insertId,
 
-        id:
-          itemResult.insertId,
-
-        order_id:
-          orderId,
+        order_id: orderId,
 
         product_id:
           product.id,
@@ -680,11 +604,8 @@ const createOrder = async (
 
         price:
           product.price,
-
       });
-
     }
-
 
     /* -----------------------------------------
        COMMIT
@@ -693,205 +614,184 @@ const createOrder = async (
     await connection.commit();
 
     /* -----------------------------------------
-       PAYPAL APPROVAL URL
-    ----------------------------------------- */
-
-    const approvalLink =
-      paypalOrder.links?.find(
-        (link) =>
-          link.rel === "approve" ||
-          link.rel === "payer-action"
-      );
-    
-    const approvalUrl =
-      approvalLink?.href || null;
-    
-    if (!approvalUrl) {
-    
-      throw new Error(
-        "PayPal approval URL was not returned."
-      );
-    }
-
-    /* -----------------------------------------
        RESPONSE
     ----------------------------------------- */
 
     return res.status(200).json({
-
       success: true,
 
       message:
-        "PayPal order created successfully",
+        "Payment order created successfully",
 
-      orderID:
-        paypalOrder.id,
+      freeOrder: false,
+
+      order:
+        razorpayOrder,
 
       orderNumber,
-
-      approvalUrl,
 
       items:
         savedItems,
 
+      downloads: [],
+
       pricing: {
-
-        subtotal:
-          pricing.subtotal,
-
-        bundleSaving:
-          pricing.bundleSaving,
-
-        discount:
-          pricing.discount,
-
-        total:
-          pricing.total,
-
-        currency:
-          "USD",
-
+        subtotal: inrPricing.subtotal,
+        bundleSaving: inrPricing.bundleSaving,
+        discount: inrPricing.discount,
+        total: inrPricing.total,
+        currency: "INR",
+        baseCurrency: "USD",
+        exchangeRate: USD_TO_INR_RATE,
       },
-
     });
-
-
   } catch (error) {
+    /* -----------------------------------------
+       ROLLBACK
+    ----------------------------------------- */
 
     if (connection) {
-
       try {
-
         await connection.rollback();
-
-      } catch (rollbackError) {
-
+      } catch (
+        rollbackError
+      ) {
         console.error(
           "Rollback error:",
           rollbackError
         );
-
       }
-
     }
 
-
     console.error(
-      "PayPal create order error:",
+      "Create order error:",
       error
     );
 
-
     return res.status(400).json({
-
       success: false,
 
       message:
         error.message ||
-        "Unable to create PayPal order",
-
+        "Unable to create payment order",
     });
-
-
   } finally {
-
     if (connection) {
       connection.release();
     }
-
   }
-
 };
 
-
 /* =========================================================
-   CAPTURE PAYPAL PAYMENT
+   VERIFY RAZORPAY PAYMENT
 ========================================================= */
 
-const captureOrder = async (
+const verifyPayment = async (
   req,
   res
 ) => {
-
   let connection;
 
-
   try {
-
     const {
-      paypalOrderId,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
     } = req.body;
 
-
-    if (!paypalOrderId) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "PayPal order ID is required",
-
-      });
-
-    }
-
-
     /* -----------------------------------------
-       GET PAYPAL ORDER BEFORE CAPTURE
+       VALIDATION
     ----------------------------------------- */
 
-    const paypalOrder =
-      await getPayPalOrder(
-        paypalOrderId
-      );
-
-
     if (
-      paypalOrder.status ===
-      "COMPLETED"
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature
     ) {
-
-      // Already captured.
-      // Continue to database verification.
-
-    } else {
-
-      /* -----------------------------------------
-         CAPTURE
-      ----------------------------------------- */
-
-      await capturePayPalOrder(
-        paypalOrderId
-      );
-
+      return res.status(400).json({
+        success: false,
+        message:
+          "Missing payment details",
+      });
     }
 
-
     /* -----------------------------------------
-       GET FINAL PAYPAL ORDER
+       RAZORPAY SECRET
     ----------------------------------------- */
 
-    const finalPayPalOrder =
-      await getPayPalOrder(
-        paypalOrderId
+    const secret =
+      process.env.RAZORPAY_KEY_SECRET;
+
+    if (!secret) {
+      console.error(
+        "RAZORPAY_KEY_SECRET is not configured."
       );
 
+      return res.status(500).json({
+        success: false,
+        message:
+          "Payment verification is not configured.",
+      });
+    }
+
+    /* -----------------------------------------
+       GENERATE EXPECTED SIGNATURE
+    ----------------------------------------- */
+
+    const body =
+      razorpay_order_id +
+      "|" +
+      razorpay_payment_id;
+
+    const expectedSignature =
+      crypto
+        .createHmac(
+          "sha256",
+          secret
+        )
+        .update(body)
+        .digest("hex");
+
+    const receivedSignature =
+      String(razorpay_signature);
+
+    /* -----------------------------------------
+       SIGNATURE LENGTH CHECK
+    ----------------------------------------- */
 
     if (
-      finalPayPalOrder.status !==
-      "COMPLETED"
+      expectedSignature.length !==
+      receivedSignature.length
     ) {
-
       return res.status(400).json({
-
         success: false,
-
         message:
-          "PayPal payment was not completed",
-
+          "Invalid payment signature",
       });
+    }
 
+    /* -----------------------------------------
+       SAFE SIGNATURE COMPARISON
+    ----------------------------------------- */
+
+    const isValid =
+      crypto.timingSafeEqual(
+        Buffer.from(
+          expectedSignature,
+          "utf8"
+        ),
+        Buffer.from(
+          receivedSignature,
+          "utf8"
+        )
+      );
+
+    if (!isValid) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid payment signature",
+      });
     }
 
     /* -----------------------------------------
@@ -901,219 +801,166 @@ const captureOrder = async (
     connection =
       await pool.getConnection();
 
+    /* -----------------------------------------
+       FIND ORDER
+    ----------------------------------------- */
 
-    const [
-      orders,
-    ] =
+    const [orders] =
       await connection.execute(
         `
-        SELECT
-          id,
-          order_number,
-          customer_id,
-          subtotal,
-          discount,
-          total,
-          currency,
-          paypal_order_id,
-          status
-        FROM orders
-        WHERE paypal_order_id = ?
-        LIMIT 1
+          SELECT
+            id,
+            order_number,
+            customer_id,
+            total,
+            currency,
+            status,
+            razorpay_payment_id
+          FROM orders
+          WHERE razorpay_order_id = ?
+          LIMIT 1
         `,
-        [paypalOrderId]
+        [razorpay_order_id]
       );
 
-
-    if (
-      orders.length === 0
-    ) {
-
+    if (orders.length === 0) {
       return res.status(404).json({
-
         success: false,
-
         message:
           "Order not found",
-
       });
-
     }
-
 
     const order =
       orders[0];
 
-    
-    const purchaseUnit =
-      finalPayPalOrder.purchase_units?.[0];
-      
-    const capture =
-      purchaseUnit?.payments?.captures?.[0];
-      
-    if (!purchaseUnit) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "PayPal purchase details are missing.",
-      });
-    }
-    
-    if (
-      purchaseUnit.reference_id !==
-      order.order_number
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "PayPal order does not match the stored order.",
-      });
-    }
-    
-    if (
-      purchaseUnit.custom_id &&
-      purchaseUnit.custom_id !==
-        order.order_number
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "PayPal order reference does not match.",
-      });
-    }
-    
-    if (
-      !capture ||
-      capture.status !== "COMPLETED"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "PayPal payment capture was not completed.",
-      });
-    }
-
-
-
     /* -----------------------------------------
-       CURRENCY CHECK
+       VERIFY RAZORPAY ORDER AMOUNT/CURRENCY
     ----------------------------------------- */
 
-    if (
-      order.currency !== "USD"
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Only USD payments are supported.",
-
-      });
-
-    }
-
-
-    /* -----------------------------------------
-       AMOUNT CHECK
-    ----------------------------------------- */
-
-    const paypalAmount =
-      Number(
-        finalPayPalOrder
-          .purchase_units?.[0]
-          ?.payments
-          ?.captures?.[0]
-          ?.amount
-          ?.value
+    const razorpayOrder =
+      await razorpay.orders.fetch(
+        razorpay_order_id
       );
 
+    const expectedAmount = Math.round(
+      Number(order.total) * 100
+    );
 
     if (
-      !Number.isFinite(
-        paypalAmount
-      )
+      razorpayOrder.currency !== "INR" ||
+      Number(razorpayOrder.amount) !== expectedAmount
     ) {
-
       return res.status(400).json({
-
         success: false,
-
-        message:
-          "Unable to verify PayPal payment amount.",
-
+        message: "Razorpay order amount or currency does not match the stored order.",
       });
-
     }
-
-
-    if (
-      roundMoney(paypalAmount) !==
-      roundMoney(order.total)
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "PayPal payment amount does not match the order.",
-
-      });
-
-    }
-
 
     /* -----------------------------------------
-       GET ITEMS
+       VERIFY ACTUAL RAZORPAY PAYMENT
     ----------------------------------------- */
 
-    const [
-      items,
-    ] =
+    const razorpayPayment =
+      await razorpay.payments.fetch(
+        razorpay_payment_id
+      );
+    
+    if (
+      razorpayPayment.order_id !==
+      razorpay_order_id
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment does not belong to this order.",
+      });
+    }
+
+    if (
+      razorpayPayment.currency !== razorpayOrder.currency
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment currency does not match the order.",
+      });
+    }
+
+    if (
+      Number(razorpayPayment.amount) !==
+      Number(razorpayOrder.amount)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment amount does not match the order.",
+      });
+    }
+
+    if (
+      razorpayPayment.status !== "captured"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment has not been captured.",
+      });
+    }
+
+    /* -----------------------------------------
+       INR CHECK
+    ----------------------------------------- */
+
+    if (order.currency !== "INR") {
+      return res.status(400).json({
+        success: false,
+        message: "Only INR payments are supported for Razorpay orders.",
+      });
+    }
+
+    /* -----------------------------------------
+       GET ORDER ITEMS
+    ----------------------------------------- */
+
+    const [items] =
       await connection.execute(
         `
-        SELECT
-          id,
-          product_id,
-          product_name,
-          price
-        FROM order_items
-        WHERE order_id = ?
-        ORDER BY id ASC
+          SELECT
+            id,
+            product_id,
+            product_name,
+            price
+          FROM order_items
+          WHERE order_id = ?
+          ORDER BY id ASC
         `,
         [order.id]
       );
-
 
     /* -----------------------------------------
        GET CUSTOMER
     ----------------------------------------- */
 
-    const [
-      customers,
-    ] =
+    const [customers] =
       await connection.execute(
         `
-        SELECT
-          id,
-          first_name,
-          last_name,
-          email,
-          country,
-          state
-        FROM customers
-        WHERE id = ?
-        LIMIT 1
+          SELECT
+            id,
+            first_name,
+            last_name,
+            email,
+            country,
+            state
+          FROM customers
+          WHERE id = ?
+          LIMIT 1
         `,
         [order.customer_id]
       );
 
-
     const customer =
       customers[0] || null;
-
 
     /* -----------------------------------------
        ALREADY PAID
@@ -1122,35 +969,23 @@ const captureOrder = async (
     if (
       order.status === "PAID"
     ) {
-
-      // A previous capture may have succeeded even if the browser did not
-      // receive its response. Issue fresh download tokens for the verified
-      // paid order so a retry can still render the purchase-success page.
-      const downloads =
-        await createDownloadLinks(
-          connection,
-          items,
-          true
-        );
-
       return res.status(200).json({
-
         success: true,
 
         message:
           "Payment already verified",
 
         payment_id:
-          paypalOrderId,
+          order.razorpay_payment_id ||
+          razorpay_payment_id,
 
         order_id:
-          paypalOrderId,
+          razorpay_order_id,
 
         orderNumber:
           order.order_number,
 
-        currency:
-          "USD",
+        currency: "INR",
 
         total:
           Number(order.total),
@@ -1159,48 +994,39 @@ const captureOrder = async (
 
         items,
 
-        downloads,
-
+        downloads: [],
       });
-
     }
 
-
     /* -----------------------------------------
-       TRANSACTION
+       START TRANSACTION
     ----------------------------------------- */
 
     await connection.beginTransaction();
 
-
     /* -----------------------------------------
-       UPDATE ORDER
+       UPDATE ORDER AS PAID
     ----------------------------------------- */
 
     await connection.execute(
       `
-      UPDATE orders
-      SET
-        paypal_capture_id = ?,
-        status = 'PAID',
-        paid_at = NOW()
-      WHERE id = ?
+        UPDATE orders
+        SET
+          razorpay_payment_id = ?,
+          razorpay_signature = ?,
+          status = 'PAID',
+          paid_at = NOW()
+        WHERE id = ?
       `,
       [
-        finalPayPalOrder
-          .purchase_units?.[0]
-          ?.payments
-          ?.captures?.[0]
-          ?.id ||
-          null,
-
+        razorpay_payment_id,
+        razorpay_signature,
         order.id,
       ]
     );
 
-
     /* -----------------------------------------
-       DOWNLOAD LINKS
+       CREATE DOWNLOAD LINKS
     ----------------------------------------- */
 
     const downloads =
@@ -1208,16 +1034,19 @@ const captureOrder = async (
         connection,
         items
       );
-    
+
+    /* -----------------------------------------
+       CREATE BOOK ACCESS TOKEN
+    ----------------------------------------- */
+
     const bookAccess =
       await createBookAccessToken(
         connection,
         order.id
       );
 
-
     /* -----------------------------------------
-       COMMIT
+       COMMIT PAYMENT
     ----------------------------------------- */
 
     await connection.commit();
@@ -1232,21 +1061,18 @@ const captureOrder = async (
       )}`;
 
     /* -----------------------------------------
-       PURCHASE EMAIL
+       SEND PURCHASE EMAIL
     ----------------------------------------- */
 
     try {
-
       if (
         customer &&
         customer.email &&
         downloads.length > 0
       ) {
-
         const emailItems =
           items
             .map((item) => {
-
               const download =
                 downloads.find(
                   (downloadItem) =>
@@ -1254,40 +1080,30 @@ const captureOrder = async (
                     item.product_id
                 );
 
-
               if (!download) {
                 return null;
               }
 
-
               return {
-
                 product_name:
                   item.product_name,
 
                 download_url:
                   download.url,
-
               };
-
             })
             .filter(Boolean);
-
 
         if (
           emailItems.length > 0
         ) {
-
           await sendPurchaseEmail({
-
             customer: {
-
               first_name:
                 customer.first_name,
 
               email:
                 customer.email,
-
             },
 
             orderNumber:
@@ -1301,48 +1117,35 @@ const captureOrder = async (
 
             accessUrl,
           });
-
         }
-
       }
-
     } catch (emailError) {
-
       console.error(
         "Purchase email could not be sent:",
         emailError.message
       );
-
     }
 
-
     /* -----------------------------------------
-       SUCCESS
+       SUCCESS RESPONSE
     ----------------------------------------- */
 
     return res.status(200).json({
-
       success: true,
 
       message:
-        "PayPal payment verified successfully",
+        "Payment verified successfully",
 
       payment_id:
-        finalPayPalOrder
-          .purchase_units?.[0]
-          ?.payments
-          ?.captures?.[0]
-          ?.id ||
-        paypalOrderId,
+        razorpay_payment_id,
 
       order_id:
-        paypalOrderId,
+        razorpay_order_id,
 
       orderNumber:
         order.order_number,
 
-      currency:
-        "USD",
+      currency: "INR",
 
       total:
         Number(order.total),
@@ -1352,56 +1155,42 @@ const captureOrder = async (
       items,
 
       downloads,
-
     });
-
-
   } catch (error) {
+    /* -----------------------------------------
+       ROLLBACK
+    ----------------------------------------- */
 
     if (connection) {
-
       try {
-
         await connection.rollback();
-
-      } catch (rollbackError) {
-
+      } catch (
+        rollbackError
+      ) {
         console.error(
           "Rollback error:",
           rollbackError
         );
-
       }
-
     }
 
-
     console.error(
-      "PayPal capture error:",
+      "Payment verification error:",
       error
     );
 
-
     return res.status(500).json({
-
       success: false,
 
       message:
-        "Payment processing failed. Please try again.",
-
+        "Payment verification failed",
     });
-
-
   } finally {
-
     if (connection) {
       connection.release();
     }
-
   }
-
 };
-
 
 /* =========================================================
    EXPORTS
@@ -1409,5 +1198,5 @@ const captureOrder = async (
 
 module.exports = {
   createOrder,
-  captureOrder,
+  verifyPayment,
 };
