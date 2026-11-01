@@ -156,7 +156,7 @@ function calculatePricing(
   /* Only PIR is supported */
   if (normalizedCoupon === "PIR") {
     discount = roundMoney(
-      subtotal * 0.1
+      subtotal * 0.95
     );
   } else if (normalizedCoupon) {
     throw new Error(

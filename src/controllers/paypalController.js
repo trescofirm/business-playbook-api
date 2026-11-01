@@ -209,7 +209,7 @@ function calculatePricing(
 
     discount =
       roundMoney(
-        subtotal * 0.10
+        subtotal * 0.95
       );
 
   } else if (
