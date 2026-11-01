@@ -1197,11 +1197,20 @@ const captureOrder = async (
         items
       );
     
-    const bookAccess =
-      await createBookAccessToken(
-        connection,
-        order.id
+    let bookAccess = null;
+
+    try {
+      bookAccess =
+        await createBookAccessToken(
+          connection,
+          order.id
+        );
+    } catch (accessError) {
+      console.error(
+        "Book access token could not be created:",
+        accessError.message
       );
+    }
 
 
     /* -----------------------------------------
@@ -1214,10 +1223,11 @@ const captureOrder = async (
       process.env.FRONTEND_PUBLIC_URL ||
       "https://tresco.firm.in";
 
-    const accessUrl =
-      `${frontendUrl.replace(/\/$/, "")}/my-books?access=${encodeURIComponent(
-        bookAccess.token
-      )}`;
+    const accessUrl = bookAccess
+      ? `${frontendUrl.replace(/\/$/, "")}/my-books?access=${encodeURIComponent(
+          bookAccess.token
+        )}`
+      : `${frontendUrl.replace(/\/$/, "")}/my-books`;
 
     /* -----------------------------------------
        PURCHASE EMAIL
@@ -1266,7 +1276,7 @@ const captureOrder = async (
           emailItems.length > 0
         ) {
 
-          await sendPurchaseEmail({
+          sendPurchaseEmail({
 
             customer: {
 
@@ -1288,6 +1298,11 @@ const captureOrder = async (
               order.total,
 
             accessUrl,
+          }).catch((emailError) => {
+            console.error(
+              "Purchase email could not be sent:",
+              emailError.message
+            );
           });
 
         }

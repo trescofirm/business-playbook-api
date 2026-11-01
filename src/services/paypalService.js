@@ -14,6 +14,9 @@ const PAYPAL_BASE_URL =
   process.env.PAYPAL_BASE_URL ||
   "https://api-m.sandbox.paypal.com";
 
+const FRONTEND_BASE_URL =
+  (process.env.FRONTEND_PUBLIC_URL || "http://localhost:5000")
+    .replace(/\/+$/, "");
 
 /* =========================================================
    VALIDATE CONFIG
@@ -150,10 +153,10 @@ async function createPayPalOrder({
               "PAY_NOW",
 
             return_url:
-              `${process.env.FRONTEND_PUBLIC_URL || "http://localhost:5000"}/checkout`,
+              `${FRONTEND_BASE_URL}/checkout?paypal=return`,
 
             cancel_url:
-              `${process.env.FRONTEND_PUBLIC_URL || "http://localhost:5000"}/checkout`,
+              `${FRONTEND_BASE_URL}/checkout?paypal=cancel`,
           },
 
         }),
