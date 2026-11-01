@@ -150,10 +150,10 @@ async function createPayPalOrder({
               "PAY_NOW",
 
             return_url:
-              `${process.env.FRONTEND_PUBLIC_URL || "http://localhost:5000"}/checkout`,
+              `${(process.env.FRONTEND_PUBLIC_URL || "https://tresco.firm.in").replace(/\/$/, "")}/checkout?payment=paypal`,
 
             cancel_url:
-              `${process.env.FRONTEND_PUBLIC_URL || "http://localhost:5000"}/checkout`,
+              `${(process.env.FRONTEND_PUBLIC_URL || "https://tresco.firm.in").replace(/\/$/, "")}/checkout?payment=cancelled`,
           },
 
         }),
