@@ -4,6 +4,119 @@ const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 
+const {
+  S3Client,
+  GetObjectCommand,
+  HeadObjectCommand,
+} = require("@aws-sdk/client-s3");
+
+/* =========================================================
+   PRIVATE BOOK STORAGE (CLOUDFLARE R2)
+   If the R2_* variables are missing, local files are used.
+========================================================= */
+
+const R2_BUCKET = process.env.R2_BUCKET;
+
+const r2Client =
+  process.env.R2_ACCOUNT_ID &&
+  process.env.R2_ACCESS_KEY_ID &&
+  process.env.R2_SECRET_ACCESS_KEY &&
+  R2_BUCKET
+    ? new S3Client({
+        region: "auto",
+        endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+        credentials: {
+          accessKeyId: process.env.R2_ACCESS_KEY_ID,
+          secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+        },
+      })
+    : null;
+
+async function isBookAvailable(filename, localPath) {
+  if (!r2Client) {
+    return fs.existsSync(localPath);
+  }
+
+  try {
+    await r2Client.send(
+      new HeadObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: filename,
+      })
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      "R2 book lookup failed:",
+      error.name,
+      error.message
+    );
+    return false;
+  }
+}
+
+async function sendBook(res, localPath, filename, done) {
+  if (!r2Client) {
+    return res.download(localPath, filename, done);
+  }
+
+  let finished = false;
+
+  try {
+    const object = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: filename,
+      })
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${filename}"`
+    );
+
+    if (object.ContentLength) {
+      res.setHeader(
+        "Content-Length",
+        String(object.ContentLength)
+      );
+    }
+
+    res.on("finish", () => {
+      finished = true;
+    });
+
+    res.on("close", () => {
+      if (!finished) {
+        finished = true;
+        done(new Error("Download interrupted"));
+      }
+    });
+
+    object.Body.on("error", (streamError) => {
+      if (!finished) {
+        finished = true;
+        res.destroy(streamError);
+        done(streamError);
+      }
+    });
+
+    object.Body.pipe(res);
+  } catch (error) {
+    finished = true;
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: "Unable to download the book",
+      });
+    }
+
+    done(error);
+  }
+}
+
 const { pool } = require("../config/db");
 
 const {
@@ -528,12 +641,26 @@ const downloadBook = async (
     */
 
     if (
-      !fs.existsSync(filePath)
+      !(await isBookAvailable(book.filename, filePath))
     ) {
-      console.error(
+            console.error(
         "Book file missing:",
         filePath
       );
+
+      try {
+        console.error(
+          "Books directory contents:",
+          fs.existsSync(booksDirectory)
+            ? fs.readdirSync(booksDirectory)
+            : "DIRECTORY DOES NOT EXIST"
+        );
+      } catch (listError) {
+        console.error(
+          "Could not list books directory:",
+          listError.message
+        );
+      }
 
       return res.status(404).json({
         success: false,
@@ -689,7 +816,8 @@ const downloadBook = async (
     |--------------------------------------------------------------------------
     */
 
-    res.download(
+    sendBook(
+      res,
       filePath,
       book.filename,
       (error) => {

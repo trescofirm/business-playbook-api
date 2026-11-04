@@ -23,6 +23,10 @@ const transporter = nodemailer.createTransport({
     auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD,
+
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
   },
 
   connectionTimeout: 10000,
@@ -48,6 +52,62 @@ const transporter = nodemailer.createTransport({
 |
 |--------------------------------------------------------------------------
 */
+
+function parseFromAddress(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+
+  if (match) {
+    return {
+      name: match[1].trim() || "Business Playbook",
+      email: match[2].trim(),
+    };
+  }
+
+  return { name: "Business Playbook", email: text };
+}
+
+async function deliverMail(mailOptions) {
+  const apiKey = process.env.BREVO_API_KEY;
+
+  /* No API key set: fall back to SMTP */
+  if (!apiKey) {
+    return transporter.sendMail(mailOptions);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        method: "POST",
+        headers: {
+          "api-key": apiKey,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          sender: parseFromAddress(mailOptions.from),
+          to: [{ email: mailOptions.to }],
+          subject: mailOptions.subject,
+          htmlContent: mailOptions.html,
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(
+        `Brevo API error ${response.status}: ${detail}`
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function sendPurchaseEmail({
   customer,
@@ -400,10 +460,7 @@ async function sendPurchaseEmail({
   |--------------------------------------------------------------------------
   */
 
-  await transporter.sendMail(
-    mailOptions
-  );
-
+  await deliverMail(mailOptions);
 
   console.log(
     `✅ Purchase confirmation email sent to ${email}`
