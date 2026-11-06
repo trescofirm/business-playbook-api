@@ -10,7 +10,17 @@ validateEnv();
 
 const app = require("./app");
 
-app.set("trust proxy", true);
+// Trust only the hosting platform's proxy hop(s).
+// `true` lets anyone spoof X-Forwarded-For and bypass rate limits.
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+app.set(
+  "trust proxy",
+  Number.isInteger(trustProxyHops) && trustProxyHops > 0
+    ? trustProxyHops
+    : 1
+);
+
+require("./config/r2").logStorageMode();
 
 app.use((req, res, next) => {
   const host = (req.headers.host || "").toLowerCase();

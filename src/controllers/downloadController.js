@@ -5,7 +5,6 @@ const path = require("path");
 const fs = require("fs");
 
 const {
-  S3Client,
   GetObjectCommand,
   HeadObjectCommand,
 } = require("@aws-sdk/client-s3");
@@ -17,24 +16,22 @@ const {
 
 const R2_BUCKET = process.env.R2_BUCKET;
 
-const r2Client =
-  process.env.R2_ACCOUNT_ID &&
-  process.env.R2_ACCESS_KEY_ID &&
-  process.env.R2_SECRET_ACCESS_KEY &&
-  R2_BUCKET
-    ? new S3Client({
-        region: "auto",
-        endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-        credentials: {
-          accessKeyId: process.env.R2_ACCESS_KEY_ID,
-          secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-        },
-      })
-    : null;
+const {
+  r2Client,
+  R2_BUCKET,
+  missingR2Env,
+  describeR2Error,
+} = require("../config/r2");
 
 async function isBookAvailable(filename, localPath) {
   if (!r2Client) {
-    return fs.existsSync(localPath);
+    const exists = fs.existsSync(localPath);
+    if (!exists) {
+      console.error(
+        `Book "${filename}" not on local disk and R2 is disabled (missing env: ${missingR2Env.join(", ")}).`
+      );
+    }
+    return exists;
   }
 
   try {
@@ -47,9 +44,8 @@ async function isBookAvailable(filename, localPath) {
     return true;
   } catch (error) {
     console.error(
-      "R2 book lookup failed:",
-      error.name,
-      error.message
+      `R2 book lookup failed for "${R2_BUCKET}/${filename}":`,
+      describeR2Error(error)
     );
     return false;
   }
@@ -103,8 +99,13 @@ async function sendBook(res, localPath, filename, done) {
     });
 
     object.Body.pipe(res);
-  } catch (error) {
+    } catch (error) {
     finished = true;
+
+    console.error(
+      `R2 book fetch failed for "${R2_BUCKET}/${filename}":`,
+      describeR2Error(error)
+    );
 
     if (!res.headersSent) {
       res.status(500).json({
