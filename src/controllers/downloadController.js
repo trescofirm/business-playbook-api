@@ -13,9 +13,6 @@ const {
    PRIVATE BOOK STORAGE (CLOUDFLARE R2)
    If the R2_* variables are missing, local files are used.
 ========================================================= */
-
-const R2_BUCKET = process.env.R2_BUCKET;
-
 const {
   r2Client,
   R2_BUCKET,
